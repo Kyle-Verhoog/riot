@@ -9,6 +9,9 @@ import subprocess
 import sys
 import typing as t
 
+import click
+
+
 logger = logging.getLogger(__name__)
 
 SHELL = "/bin/bash"
@@ -165,7 +168,21 @@ class Session:
         t.cast(importlib.abc.Loader, spec.loader).exec_module(config)
 
         venv = getattr(config, "venv", Venv())
-        return cls(venv=venv)
+        version = getattr(config, "version", None)
+
+        supported_versions = [0.3]
+
+        if not version:
+            click.echo(f"A version must be specified in '{path}'.", err=True)
+            sys.exit(1)
+        elif version not in supported_versions:
+            click.echo(
+                f"Unsupported version {version} specified in '{path}'. Supported versions are {','.join(supported_versions)}",
+                err=True,
+            )
+            sys.exit(1)
+        else:
+            return cls(venv=venv)
 
     def run(
         self,

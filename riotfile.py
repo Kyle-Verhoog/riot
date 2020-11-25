@@ -1,5 +1,7 @@
 from riot import Venv
 
+version = 0.3
+
 venv = Venv(
     pys=3.8,
     venvs=[

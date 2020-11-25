@@ -322,6 +322,8 @@ def test_run_suites_cmdargs(
                 """
 from riot import Venv
 
+version = 0.3
+
 venv = Venv(
     venvs=[
         Venv(
@@ -365,6 +367,8 @@ def test_nested_venv(cli: click.testing.CliRunner) -> None:
             f.write(
                 """
 from riot import Venv
+
+version = 0.3
 
 venv = Venv(
     pys=[3],
@@ -417,6 +421,8 @@ def test_types(cli: click.testing.CliRunner) -> None:
                 """
 from riot import Venv
 
+version = 0.3
+
 venv = Venv(
     venvs=[
         Venv(
@@ -456,6 +462,60 @@ def test_success():
 
         result = cli.invoke(
             riot.cli.main, ["run", "-s", "success2"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert result.stdout == ""
+
+
+def test_no_version(cli: click.testing.CliRunner) -> None:
+    with cli.isolated_filesystem():
+        with open("riotfile.py", "w") as f:
+            f.write(
+                """
+from riot import Venv
+
+venv = Venv(
+    venvs=[
+        Venv(
+            pys=[3],
+            name="success",
+            command="echo hi",
+        ),
+    ],
+)
+            """
+            )
+
+        result = cli.invoke(
+            riot.cli.main, ["run", "-s", "success"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert result.stdout == ""
+
+
+def test_unsupported_version(cli: click.testing.CliRunner) -> None:
+    with cli.isolated_filesystem():
+        with open("riotfile.py", "w") as f:
+            f.write(
+                """
+from riot import Venv
+
+version = 0.3
+
+venv = Venv(
+    venvs=[
+        Venv(
+            pys=[3],
+            name="success",
+            command="echo hi",
+        ),
+    ],
+)
+            """
+            )
+
+        result = cli.invoke(
+            riot.cli.main, ["run", "-s", "success"], catch_exceptions=False
         )
         assert result.exit_code == 0
         assert result.stdout == ""
