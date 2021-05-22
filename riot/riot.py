@@ -245,8 +245,8 @@ class VenvInstance:
 @dataclasses.dataclass
 class VenvInstanceResult:
     instance: VenvInstance
-    venv_name: str
-    pkgstr: str
+    venv_name: t.Optional[str] = None
+    pkgstr: t.Optional[str] = None
     code: int = 1
     output: str = ""
 
@@ -256,6 +256,13 @@ class CmdFailure(Exception):
         self.msg = msg
         self.proc = completed_proc
         self.code = completed_proc.returncode
+        super().__init__(self, msg)
+
+
+class RunFailure(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+        self.code = 1
         super().__init__(self, msg)
 
 
@@ -332,6 +339,9 @@ class Session:
         )
 
         for inst in self.venv.instances(pattern=pattern):
+            # Result which will be updated with the test outcome.
+            result = VenvInstanceResult(instance=inst)
+
             if pythons and inst.py not in pythons:
                 logger.debug(
                     "Skipping venv instance %s due to interpreter mismatch", inst
@@ -339,42 +349,45 @@ class Session:
                 continue
 
             try:
-                base_venv_path: str = inst.py.venv_path()
-            except FileNotFoundError:
-                if skip_missing:
-                    logger.warning("Skipping missing interpreter %s", inst.py)
-                    continue
+                try:
+                    base_venv_path: str = inst.py.venv_path()
+                except FileNotFoundError:
+                    if skip_missing:
+                        logger.warning(
+                            "Skipping missing interpreter %s",
+                            inst.py,
+                        )
+                        continue
+                    else:
+                        raise RunFailure(f"Missing interpreter for '{inst.py}'")
+
+                # Resolve the packages required for this instance.
+                pkgs: t.Dict[str, str] = {
+                    name: version for name, version in inst.pkgs if version is not None
+                }
+
+                if pkgs:
+                    venv_path = inst.venv_path()
+                    pkg_str = " ".join(
+                        [
+                            f"'{get_pep_dep(lib, version)}'"
+                            for lib, version in pkgs.items()
+                        ]
+                    )
                 else:
-                    raise
+                    venv_path = base_venv_path
+                    pkg_str = ""
 
-            logger.info("Running with %s", inst.py)
+                result.pkgstr = pkg_str
 
-            # Resolve the packages required for this instance.
-            pkgs: t.Dict[str, str] = {
-                name: version for name, version in inst.pkgs if version is not None
-            }
+                if not venv_pattern.search(venv_path):
+                    logger.debug(
+                        "Skipping venv instance '%s' due to pattern mismatch", venv_path
+                    )
+                    continue
 
-            if pkgs:
-                venv_path = inst.venv_path()
-                pkg_str = " ".join(
-                    [f"'{get_pep_dep(lib, version)}'" for lib, version in pkgs.items()]
-                )
-            else:
-                venv_path = base_venv_path
-                pkg_str = ""
+                result.venv_name = venv_path
 
-            if not venv_pattern.search(venv_path):
-                logger.debug(
-                    "Skipping venv instance '%s' due to pattern mismatch", venv_path
-                )
-                continue
-
-            # Result which will be updated with the test outcome.
-            result = VenvInstanceResult(
-                instance=inst, venv_name=venv_path, pkgstr=pkg_str
-            )
-
-            try:
                 if pkgs:
                     # Copy the base venv to use for this venv.
                     logger.info(
@@ -398,9 +411,8 @@ class Session:
                             f"pip --disable-pip-version-check install {pkg_str}",
                         )
                     except CmdFailure as e:
-                        raise CmdFailure(
-                            f"Failed to install venv dependencies {pkg_str}\n{e.proc.stdout}",
-                            e.proc,
+                        raise RunFailure(
+                            f"Failed to install venv dependencies {pkg_str}\n{e.proc.stdout}"
                         )
 
                 # Generate the environment for the instance.
@@ -427,10 +439,8 @@ class Session:
                     )
                     result.output = output.stdout
                 except CmdFailure as e:
-                    raise CmdFailure(
-                        f"Test failed with exit code {e.proc.returncode}", e.proc
-                    )
-            except CmdFailure as e:
+                    raise RunFailure(f"Test failed with exit code {e.proc.returncode}")
+            except RunFailure as e:
                 result.code = e.code
                 click.echo(click.style(e.msg, fg="red"))
                 if exit_first:
